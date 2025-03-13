@@ -22,6 +22,10 @@ case $(uname) in
 
     DLL_EXT=".dylib"
     EXTRA_LINKER_FLAGS="-Wl,-rpath $ROOT/vendor/raylib/$LIB_PATH"
+     # Copy the macos libraries into the project automatically.
+    if [ ! -f "libarylib*.dylib*" ]; then
+        cp -r $ROOT/vendor/raylib/macos/libraylib*.dylib* .
+    fi
     ;;
 *)
     DLL_EXT=".so"

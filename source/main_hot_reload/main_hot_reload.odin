@@ -5,14 +5,15 @@ changes.
 
 package main
 
+import "core:c/libc"
 import "core:dynlib"
 import "core:fmt"
-import "core:c/libc"
-import "core:os"
-import "core:os/os2"
 import "core:log"
 import "core:mem"
+import "core:os"
+import "core:os/os2"
 import "core:path/filepath"
+//import "core:strings"
 
 when ODIN_OS == .Windows {
 	DLL_EXT :: ".dll"
@@ -39,20 +40,20 @@ copy_dll :: proc(to: string) -> bool {
 }
 
 Game_API :: struct {
-	lib: dynlib.Library,
-	init_window: proc(),
-	init: proc(),
-	update: proc(),
-	should_run: proc() -> bool,
-	shutdown: proc(),
-	shutdown_window: proc(),
-	memory: proc() -> rawptr,
-	memory_size: proc() -> int,
-	hot_reloaded: proc(mem: rawptr),
-	force_reload: proc() -> bool,
-	force_restart: proc() -> bool,
+	lib:               dynlib.Library,
+	init_window:       proc(),
+	init:              proc(),
+	update:            proc(),
+	should_run:        proc() -> bool,
+	shutdown:          proc(),
+	shutdown_window:   proc(),
+	memory:            proc() -> rawptr,
+	memory_size:       proc() -> int,
+	hot_reloaded:      proc(mem: rawptr),
+	force_reload:      proc() -> bool,
+	force_restart:     proc() -> bool,
 	modification_time: os.File_Time,
-	api_version: int,
+	api_version:       int,
 }
 
 load_game_api :: proc(api_version: int) -> (api: Game_API, ok: bool) {
@@ -65,6 +66,8 @@ load_game_api :: proc(api_version: int) -> (api: Game_API, ok: bool) {
 		return
 	}
 
+	fmt.printf("About to load" + GAME_DLL_DIR + "game_{0}" + DLL_EXT, api_version)
+	fmt.println()
 	game_dll_name := fmt.tprintf(GAME_DLL_DIR + "game_{0}" + DLL_EXT, api_version)
 	copy_dll(game_dll_name) or_return
 
@@ -91,8 +94,34 @@ unload_game_api :: proc(api: ^Game_API) {
 	}
 
 	if os.remove(fmt.tprintf(GAME_DLL_DIR + "game_{0}" + DLL_EXT, api.api_version)) != nil {
-		fmt.printfln("Failed to remove {0}game_{1}" + DLL_EXT + " copy", GAME_DLL_DIR, api.api_version)
+		fmt.printfln(
+			"Failed to remove {0}game_{1}" + DLL_EXT + " copy",
+			GAME_DLL_DIR,
+			api.api_version,
+		)
 	}
+}
+
+hot_reload_compile :: proc() -> bool {
+	proc_desc: os2.Process_Desc
+	//proc_desc.command = {"sh", "build_hot_reload.sh"} // OSX and Linux
+	proc_desc.command = {"build_hot_reload.bat"}
+	proc_desc.working_dir = "./"
+
+	fmt.println("About to run build_hot_reload")
+	state, stdout, stderr, hot_reload_err := os2.process_exec(proc_desc, context.temp_allocator)
+	if hot_reload_err != nil {
+		//failed to run CTE. What do we doe?
+		fmt.println("Error during hot_reload_build")
+		return false
+	}
+	fmt.println(
+		"build_hot_reload done. I believe successfully... here is what I got",
+		state,
+		string(stdout),
+		string(stderr),
+	)
+	return true
 }
 
 main :: proc() {
@@ -134,14 +163,71 @@ main :: proc() {
 
 	old_game_apis := make([dynamic]Game_API, default_allocator)
 
+	prev_game_dll_mod_err: os.Error = nil
+	prev_game_api_modification_time: os.File_Time = 0
+	prev_game_dll_mod: os.File_Time = 0
+	// prev_mod_time_nsec: i64 = 0
+
 	for game_api.should_run() {
 		game_api.update()
 		force_reload := game_api.force_reload()
 		force_restart := game_api.force_restart()
 		reload := force_reload || force_restart
+
 		game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(GAME_DLL_PATH)
 
-		if game_dll_mod_err == os.ERROR_NONE && game_api.modification_time != game_dll_mod {
+		//This needs to be a logic change. I want to go through every (odin?) file that makes up the DLL and recompile DLL if there is a change
+		//detected_file_change :: proc(prev_mod_time_nsec: ^i64) -> bool {
+		//	path := "."
+		//	isDir := os.is_dir_path(path)
+		//	if !isDir {
+		//		//if its not a directory then its a file. something weird but maybe we check anyways
+		//	}
+		//	flags := os.O_RDONLY
+		//	cstr := strings.clone_to_cstring(path, context.temp_allocator)
+
+		//	handle: os.Handle = os.INVALID_HANDLE
+		//	handle = os._unix_open(cstr, i32(flags), u16(0))
+		//	defer os._unix_close(handle)
+		//	if handle == os.INVALID_HANDLE {
+		//		//err := os.get_last_error()
+		//		//TOOD something with err
+		//	}
+
+		//	cur_dir_info, _ := os.read_dir(handle, -1) //I have no idea what n is for
+
+		//	for file_info in cur_dir_info {
+		//		if prev_mod_time_nsec^ != file_info.modification_time._nsec {
+		//			prev_mod_time_nsec^ = file_info.modification_time._nsec
+		//			fmt.printf("detected change in file :{0}, hot reloading", file_info.name)
+		//			return true
+		//		}
+		//	}
+		//	return false
+		//}
+
+		if prev_game_dll_mod != game_dll_mod {
+
+			prev_game_dll_mod_err = game_dll_mod_err
+			prev_game_api_modification_time = game_api.modification_time
+			prev_game_dll_mod = game_dll_mod
+
+			fmt.printf(
+				"game_dll_mod_err :{0}, game_api.modification_time: {1}, game_dll_mod  {2}\n",
+				game_dll_mod_err,
+				game_api.modification_time,
+				game_dll_mod,
+			)
+			reload = true
+		}
+
+		if game_api.force_reload() {
+
+			fmt.println("Hot reload compil;ing")
+			hot_reload_compile()
+		}
+
+		if game_dll_mod_err == nil && prev_game_dll_mod != game_dll_mod {
 			reload = true
 		}
 
@@ -149,7 +235,8 @@ main :: proc() {
 			new_game_api, new_game_api_ok := load_game_api(game_api_version)
 
 			if new_game_api_ok {
-				force_restart = force_restart || game_api.memory_size() != new_game_api.memory_size()
+				force_restart =
+					force_restart || game_api.memory_size() != new_game_api.memory_size()
 
 				if !force_restart {
 					// This does the normal hot reload
