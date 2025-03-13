@@ -97,7 +97,7 @@ draw_square_grid :: proc(n: int) {
 
 draw :: proc() {
 	rl.BeginDrawing()
-	rl.ClearBackground(rl.BLACK)
+	rl.ClearBackground(rl.BLUE)
 
 	rl.BeginMode2D(game_camera())
 	//grid is lowest priorty

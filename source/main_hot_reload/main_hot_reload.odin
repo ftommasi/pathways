@@ -17,10 +17,13 @@ import "core:path/filepath"
 
 when ODIN_OS == .Windows {
 	DLL_EXT :: ".dll"
+	BUILD_COMMAND :: []string{"build_hot_reload.bat"}
 } else when ODIN_OS == .Darwin {
 	DLL_EXT :: ".dylib"
+	BUILD_COMMAND :: []string{"sh", "build_hot_reload.sh"}
 } else {
 	DLL_EXT :: ".so"
+	BUILD_COMMAND :: []string{"bash", "build_hot_reload.sh"}
 }
 
 GAME_DLL_DIR :: "build/hot_reload/"
@@ -69,7 +72,10 @@ load_game_api :: proc(api_version: int) -> (api: Game_API, ok: bool) {
 	fmt.printf("About to load" + GAME_DLL_DIR + "game_{0}" + DLL_EXT, api_version)
 	fmt.println()
 	game_dll_name := fmt.tprintf(GAME_DLL_DIR + "game_{0}" + DLL_EXT, api_version)
-	copy_dll(game_dll_name) or_return
+	err := copy_dll(game_dll_name) 
+	if !err{
+		fmt.println("Error copying dll")
+	}
 
 	// This proc matches the names of the fields in Game_API to symbols in the
 	// game DLL. It actually looks for symbols starting with `game_`, which is
@@ -104,15 +110,15 @@ unload_game_api :: proc(api: ^Game_API) {
 
 hot_reload_compile :: proc() -> bool {
 	proc_desc: os2.Process_Desc
-	//proc_desc.command = {"sh", "build_hot_reload.sh"} // OSX and Linux
-	proc_desc.command = {"build_hot_reload.bat"}
+	proc_desc.command = BUILD_COMMAND 
 	proc_desc.working_dir = "./"
 
 	fmt.println("About to run build_hot_reload")
 	state, stdout, stderr, hot_reload_err := os2.process_exec(proc_desc, context.temp_allocator)
 	if hot_reload_err != nil {
-		//failed to run CTE. What do we doe?
 		fmt.println("Error during hot_reload_build")
+		fmt.println("out: {0}",stdout)
+		fmt.println("err: {0}",stderr)
 		return false
 	}
 	fmt.println(
