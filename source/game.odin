@@ -80,7 +80,7 @@ update :: proc() {
 
 //draw a grid of nxn squares
 draw_square_grid :: proc(n: int) {
-	color := []rl.Color{rl.PURPLE, rl.YELLOW}
+	color := []rl.Color{rl.PURPLE, rl.GRAY}
 	selected_color := 0
 	size: f32 = 25
 	for col in 0 ..= n {
@@ -204,7 +204,7 @@ game_hot_reloaded :: proc(mem: rawptr) {
 
 @(export)
 game_force_reload :: proc() -> bool {
-	return rl.IsKeyPressed(.F5)
+	return rl.IsKeyPressed(.R)
 }
 
 @(export)
