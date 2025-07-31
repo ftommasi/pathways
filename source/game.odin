@@ -1,29 +1,27 @@
-/*
-This file is the starting point of your game.
-
-Some important procedures are:
-- game_init_window: Opens the window
-- game_init: Sets up the game state
-- game_update: Run once per frame
-- game_should_close: For stopping your game when close button is pressed
-- game_shutdown: Shuts down game and frees memory
-- game_shutdown_window: Closes window
-
-The procs above are used regardless if you compile using the `build_release`
-script or the `build_hot_reload` script. However, in the hot reload case, the
-contents of this file is compiled as part of `build/hot_reload/game.dll` (or
-.dylib/.so on mac/linux). In the hot reload cases some other procedures are
-also used in order to facilitate the hot reload functionality:
-
-- game_memory: Run just before a hot reload. That way game_hot_reload.exe has a
-      pointer to the game's memory that it can hand to the new game DLL.
-- game_hot_reloaded: Run after a hot reload so that the `g_mem` global
-      variable can be set to whatever pointer it was in the old DLL.
-
-NOTE: When compiled as part of `build_release`, `build_debug` or `build_web`
-then this whole package is just treated as a normal Odin package. No DLL is
-created.
-*/
+//This file is the starting point of your game.
+//
+//Some important procedures are:
+//- game_init_window: Opens the window
+//- game_init: Sets up the game state
+//- game_update: Run once per frame
+//- game_should_close: For stopping your game when close button is pressed
+//- game_shutdown: Shuts down game and frees memory
+//- game_shutdown_window: Closes window
+//
+//The procs above are used regardless if you compile using the `build_release`
+//script or the `build_hot_reload` script. However, in the hot reload case, the
+//contents of this file is compiled as part of `build/hot_reload/game.dll` (or
+//.dylib/.so on mac/linux). In the hot reload cases some other procedures are
+//also used in order to facilitate the hot reload functionality:
+//
+//- game_memory: Run just before a hot reload. That way game_hot_reload.exe has a
+//      pointer to the game's memory that it can hand to the new game DLL.
+//- game_hot_reloaded: Run after a hot reload so that the `g_mem` global
+//      variable can be set to whatever pointer it was in the old DLL.
+//
+//NOTE: When compiled as part of `build_release`, `build_debug` or `build_web`
+//then this whole package is just treated as a normal Odin package. No DLL is
+//created.
 
 package game
 
@@ -33,11 +31,80 @@ import rl "vendor:raylib"
 
 PIXEL_WINDOW_HEIGHT :: 180
 
+//TODO(Fausto): reconsider this
+Rotations :: enum {
+	_0_DEG,
+	_90_DEG,
+	_180_DEG,
+	_270_DEG,
+}
+
+//TOOD(Fausto): Will we weven need more?
+EntityKind :: enum {
+	PIPE,
+}
+
+// Generic entity type. Contains everything. DiscUnion ?
+Entity :: struct {
+	texture:   rl.Texture,
+	pos:       rl.Vector2,
+	kind:      EntityKind,
+	specifics: EntityTypes,
+}
+
+Pipe :: struct {
+	is_elbow: bool,
+	rotation: Rotations, //only 4 options?
+}
+
+EntityTypes :: union {
+	Pipe,
+}
+
+//TODO(Fausto): Revisit returning pointers into dynamic arry
+make_pipe_entity :: proc(
+	texture: rl.Texture,
+	pos: rl.Vector2,
+	is_elbow: bool,
+	rot: Rotations,
+) -> ^Entity {
+
+	ent := new(Entity)
+	ent^ = Entity {
+		texture = texture,
+		pos     = pos,
+		kind    = EntityKind.PIPE,
+	}
+
+	ent.specifics = Pipe {
+		is_elbow = is_elbow,
+		rotation = rot,
+	}
+
+	return ent
+}
+
+draw_entity :: proc(e: ^Entity) {
+	switch e.kind {
+	case .PIPE:
+		{
+			pipe_specifics := e.specifics.(Pipe) //shorthand
+			if pipe_specifics.is_elbow {
+				rect := rl.Rectangle{0, 0, 68, 69} // Guesstimated based on asesprite
+				rl.DrawTextureRec(e.texture, rect, e.pos, rl.WHITE) // Cat texture
+			} else {
+				rect := rl.Rectangle{68, 69, 68, 69} // Guesstimated based on asesprite
+				rl.DrawTextureRec(e.texture, rect, e.pos, rl.WHITE) // Cat texture
+			}
+		}
+	}
+}
+
 Game_Memory :: struct {
-	player_pos:     rl.Vector2,
-	player_texture: rl.Texture,
-	some_number:    int,
-	run:            bool,
+	player_pos:  rl.Vector2,
+	entities:    [dynamic]Entity, //TODO(Fausto):dynamic?
+	some_number: int,
+	run:         bool,
 }
 
 g_mem: ^Game_Memory
@@ -101,11 +168,13 @@ draw :: proc() {
 
 	rl.BeginMode2D(game_camera())
 	//grid is lowest priorty
-	draw_square_grid(8)
-	//rl.DrawTextureEx(g_mem.player_texture, g_mem.player_pos, 0, 1, rl.WHITE) // Cat texture
+	//draw_square_grid(8)
+
 	//rl.DrawRectangleV({20, 20}, {10, 10}, rl.RED)
 	//rl.DrawRectangleV({-30, -20}, {10, 10}, rl.GREEN)
-
+	for &ent in g_mem.entities {
+		draw_entity(&ent)
+	}
 	rl.EndMode2D()
 
 	rl.BeginMode2D(ui_camera())
@@ -117,7 +186,7 @@ draw :: proc() {
 		fmt.ctprintf(
 			"WELCOME TO RAY GUI LIB some_number: %v\nplayer_pos: %v",
 			g_mem.some_number,
-			g_mem.player_pos,
+			rl.GetMousePosition(),
 		),
 		5,
 		5,
@@ -149,13 +218,36 @@ game_init_window :: proc() {
 game_init :: proc() {
 	g_mem = new(Game_Memory)
 
+	pipe_texture := rl.LoadTexture("assets/Bioshockhacking.png") // NOTE this is a spritesheet
+
+	entities := make_dynamic_array([dynamic]Entity)
+
+	//TODO(Fausto): Revisit how we think about doing this
+	//Make some number of pipes idk
+	//size: f32 = 25 //TODO(Fausto) magic num
+	for col in 0 ..= 8 {
+		for row in 0 ..= 8 {
+			//pos := rl.Vector2{size * f32(row), size * f32(col)}
+			pos := rl.Vector2{f32(row), f32(col)}
+			is_elbow := (col % 2 == 0 && row % 2 != 0) //random-ish for now
+			//TODO(Fausto): Revisit returning pointers into dynamic arry
+			entity := make_pipe_entity(pipe_texture, pos, is_elbow, Rotations._0_DEG)
+			append(&entities, entity^)
+		}
+	}
+	pos := rl.Vector2{f32(200), f32(200)}
+	entity := make_pipe_entity(pipe_texture, pos, true, Rotations._0_DEG)
+	append(&entities, entity^)
+
+
 	g_mem^ = Game_Memory {
-		run            = true,
-		some_number    = 100,
+		run         = true,
+		some_number = 100,
 
 		// You can put textures, sounds and music in the `assets` folder. Those
 		// files will be part any release or web build.
-		player_texture = rl.LoadTexture("assets/round_cat.png"),
+		//player_texture = rl.LoadATexture("assets/round_cat.png"),
+		entities    = entities,
 	}
 
 	game_hot_reloaded(g_mem)
@@ -164,7 +256,7 @@ game_init :: proc() {
 @(export)
 game_should_run :: proc() -> bool {
 	when ODIN_OS != .JS {
-		// Never run this proc in browser. It contains a 16 ms sleep on web!
+		// Never run this proc in browser. It) contains a 16 ms sleep on web!
 		if rl.WindowShouldClose() {
 			return false
 		}
@@ -175,6 +267,10 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
+	for &ent in g_mem.entities {
+		free(&ent)
+	}
+	delete_dynamic_array(g_mem.entities)
 	free(g_mem)
 }
 
