@@ -46,7 +46,7 @@ EntityKind :: enum {
 
 // Generic entity type. Contains everything. DiscUnion ?
 Entity :: struct {
-	texture:   rl.Texture,
+	//TODO(Fausto): Add members for location in atlas
 	pos:       rl.Vector2,
 	kind:      EntityKind,
 	specifics: EntityTypes,
@@ -61,19 +61,44 @@ EntityTypes :: union {
 	Pipe,
 }
 
-//TODO(Fausto): Revisit returning pointers into dynamic arry
-make_pipe_entity :: proc(
-	texture: rl.Texture,
-	pos: rl.Vector2,
-	is_elbow: bool,
-	rot: Rotations,
-) -> ^Entity {
+PIPE_SPRITE_SIZE :: 68
+PIPE_WIDTH :: 34
+PIPE_HEIGHT :: 34
 
-	ent := new(Entity)
-	ent^ = Entity {
-		texture = texture,
-		pos     = pos,
-		kind    = EntityKind.PIPE,
+reset_pipe_grid :: proc() {
+	//first cleanup
+	//for &ent in g_mem.entities {
+	//	free(&ent)
+	//}
+	clear_dynamic_array(&g_mem.entities)
+
+	//then lets recreate our entity array
+	//TODO(Fausto): Revisit how we think about doing this
+	//Make some number of pipes idk
+	//max_grid_size_pixels := rl.GetScreenHeight() //Always take screen height instaead of min whatever...
+	//grid_start := max_grid_size_pixels / 2
+	//grid_end := rl.GetScreenWidth() - max_grid_size_pixels / 2
+	grid_size := g_mem.grid_size - 1 //Want modularity
+	step_size := cast(f32)(PIPE_WIDTH + 1) // add a tad of padding
+	for col in 0 ..= grid_size {
+		for row in 0 ..= grid_size {
+			//Lets come up with a dynamic way to draw the grid. It should always be in the middle of the screen
+			pos := rl.Vector2{step_size * f32(row), step_size * f32(col)} //TODO(Fausto):wasteful
+			//pos := rl.Vector2{f32(row), f32(col)}
+			is_elbow := (col % 2 == 0 && row % 2 != 0) //random-ish for now
+			//TODO(Fausto): Revisit returning pointers into dynamic arry
+			entity := make_pipe_entity(pos, is_elbow, Rotations._0_DEG)
+			append(&g_mem.entities, entity)
+		}
+	}
+
+}
+
+//TODO(Fausto): Revisit returning pointers into dynamic arry
+make_pipe_entity :: proc(pos: rl.Vector2, is_elbow: bool, rot: Rotations) -> Entity {
+	ent := Entity {
+		pos  = pos,
+		kind = EntityKind.PIPE,
 	}
 
 	ent.specifics = Pipe {
@@ -84,27 +109,37 @@ make_pipe_entity :: proc(
 	return ent
 }
 
+
 draw_entity :: proc(e: ^Entity) {
 	switch e.kind {
 	case .PIPE:
 		{
 			pipe_specifics := e.specifics.(Pipe) //shorthand
+			dest := rl.Rectangle{e.pos.x, e.pos.y, PIPE_WIDTH, PIPE_HEIGHT}
 			if pipe_specifics.is_elbow {
-				rect := rl.Rectangle{0, 0, 68, 69} // Guesstimated based on asesprite
-				rl.DrawTextureRec(e.texture, rect, e.pos, rl.WHITE) // Cat texture
+				rect := rl.Rectangle{0, 0, PIPE_SPRITE_SIZE, PIPE_SPRITE_SIZE} // Guesstimated based on asesprite
+				//rl.DrawTextureRec(g_mem.pipe_texture, rect, e.pos, rl.WHITE) // Cat texture
+				rl.DrawTexturePro(g_mem.pipe_texture, rect, dest, rl.Vector2{0, 0}, 0, rl.WHITE) // Cat texture
 			} else {
-				rect := rl.Rectangle{68, 69, 68, 69} // Guesstimated based on asesprite
-				rl.DrawTextureRec(e.texture, rect, e.pos, rl.WHITE) // Cat texture
+				rect := rl.Rectangle {
+					PIPE_SPRITE_SIZE,
+					PIPE_SPRITE_SIZE,
+					PIPE_SPRITE_SIZE,
+					PIPE_SPRITE_SIZE,
+				} // Guesstimated based on asesprite
+				rl.DrawTexturePro(g_mem.pipe_texture, rect, dest, rl.Vector2{0, 0}, 0, rl.WHITE) // Cat texture
 			}
 		}
 	}
 }
 
+//Changes to Game_Memory do not reflect without a full shutdown
 Game_Memory :: struct {
-	player_pos:  rl.Vector2,
-	entities:    [dynamic]Entity, //TODO(Fausto):dynamic?
-	some_number: int,
-	run:         bool,
+	player_pos:   rl.Vector2,
+	pipe_texture: rl.Texture, //We opt for identifying the textures individually
+	entities:     [dynamic]Entity, //TODO(Fausto):dynamic?
+	grid_size:    int,
+	run:          bool,
 }
 
 g_mem: ^Game_Memory
@@ -113,7 +148,19 @@ game_camera :: proc() -> rl.Camera2D {
 	w := f32(rl.GetScreenWidth())
 	h := f32(rl.GetScreenHeight())
 
-	return {zoom = h / PIXEL_WINDOW_HEIGHT, target = g_mem.player_pos, offset = {w / 2, h / 2}}
+	//return {zoom = h / PIXEL_WINDOW_HEIGHT, target = g_mem.player_pos, offset = {w / 2, h / 2}}
+	target := rl.Vector2{0, 0}
+	formula := len(g_mem.entities) / 4 - 1
+	if formula > 0 {
+		target = g_mem.entities[formula].pos
+	}
+
+	target = rl.Vector2 {
+		cast(f32)(PIPE_WIDTH * g_mem.grid_size / 2),
+		cast(f32)(PIPE_WIDTH * g_mem.grid_size / 2),
+	}
+
+	return {zoom = h / PIXEL_WINDOW_HEIGHT, target = target, offset = {w / 2, h / 2}}
 }
 
 ui_camera :: proc() -> rl.Camera2D {
@@ -122,7 +169,7 @@ ui_camera :: proc() -> rl.Camera2D {
 
 update :: proc() {
 	input: rl.Vector2
-
+	g_mem.grid_size = 8
 	if rl.IsKeyDown(.UP) || rl.IsKeyDown(.W) {
 		input.y -= 1
 	}
@@ -138,10 +185,15 @@ update :: proc() {
 
 	input = linalg.normalize0(input)
 	g_mem.player_pos += input * rl.GetFrameTime() * 100
-	g_mem.some_number += 1
 
 	if rl.IsKeyPressed(.ESCAPE) {
 		g_mem.run = false
+
+	}
+
+	if len(g_mem.entities) != g_mem.grid_size {
+		reset_pipe_grid() //Lets scrap and start from scratch
+		// Probably made a hot reload change..
 	}
 }
 
@@ -162,6 +214,7 @@ draw_square_grid :: proc(n: int) {
 	}
 }
 
+
 draw :: proc() {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLUE)
@@ -172,6 +225,7 @@ draw :: proc() {
 
 	//rl.DrawRectangleV({20, 20}, {10, 10}, rl.RED)
 	//rl.DrawRectangleV({-30, -20}, {10, 10}, rl.GREEN)
+	//lets draw pipes only on the screen coordinates not world coords
 	for &ent in g_mem.entities {
 		draw_entity(&ent)
 	}
@@ -184,8 +238,8 @@ draw :: proc() {
 	// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
 	rl.DrawText(
 		fmt.ctprintf(
-			"WELCOME TO RAY GUI LIB some_number: %v\nplayer_pos: %v",
-			g_mem.some_number,
+			"WELCOME TO RAY GUI LIB grid_size: %v\nplayer_pos: %v",
+			g_mem.grid_size,
 			rl.GetMousePosition(),
 		),
 		5,
@@ -214,6 +268,8 @@ game_init_window :: proc() {
 	rl.SetExitKey(nil)
 }
 
+
+//Changes in game_init do not reflect without a full shutdown. Remember that
 @(export)
 game_init :: proc() {
 	g_mem = new(Game_Memory)
@@ -222,32 +278,15 @@ game_init :: proc() {
 
 	entities := make_dynamic_array([dynamic]Entity)
 
-	//TODO(Fausto): Revisit how we think about doing this
-	//Make some number of pipes idk
-	//size: f32 = 25 //TODO(Fausto) magic num
-	for col in 0 ..= 8 {
-		for row in 0 ..= 8 {
-			//pos := rl.Vector2{size * f32(row), size * f32(col)}
-			pos := rl.Vector2{f32(row), f32(col)}
-			is_elbow := (col % 2 == 0 && row % 2 != 0) //random-ish for now
-			//TODO(Fausto): Revisit returning pointers into dynamic arry
-			entity := make_pipe_entity(pipe_texture, pos, is_elbow, Rotations._0_DEG)
-			append(&entities, entity^)
-		}
-	}
-	pos := rl.Vector2{f32(200), f32(200)}
-	entity := make_pipe_entity(pipe_texture, pos, true, Rotations._0_DEG)
-	append(&entities, entity^)
-
-
 	g_mem^ = Game_Memory {
-		run         = true,
-		some_number = 100,
+		run          = true,
+		grid_size    = 8,
 
 		// You can put textures, sounds and music in the `assets` folder. Those
 		// files will be part any release or web build.
 		//player_texture = rl.LoadATexture("assets/round_cat.png"),
-		entities    = entities,
+		pipe_texture = pipe_texture, //TODO(Fausto): Look at this
+		entities     = entities,
 	}
 
 	game_hot_reloaded(g_mem)
@@ -267,9 +306,9 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
-	for &ent in g_mem.entities {
-		free(&ent)
-	}
+	//g_mem.Textures
+	rl.UnloadTexture(g_mem.pipe_texture)
+	clear_dynamic_array(&g_mem.entities)
 	delete_dynamic_array(g_mem.entities)
 	free(g_mem)
 }
