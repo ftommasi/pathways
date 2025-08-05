@@ -71,7 +71,7 @@ reset_pipe_grid :: proc() {
 	//for &ent in g_mem.entities {
 	//	free(&ent)
 	//}
-	//clear_dynamic_array(&g_mem.entities)
+	clear_dynamic_array(&g_mem.entities)
 
 	//then lets recreate our entity array
 	//TODO(Fausto): Revisit how we think about doing this
@@ -100,7 +100,8 @@ reset_pipe_grid :: proc() {
 				rotation = Rotations._270_DEG
 			}
 			entity := make_pipe_entity(pos, is_elbow, rotation)
-			g_mem.entities[idx] = entity
+			append(&g_mem.entities, entity)
+			//g_mem.entities[idx] = entity
 			idx += 1
 			g_mem.pipes_appended += 1
 		}
@@ -185,8 +186,8 @@ draw_entity :: proc(e: ^Entity, selected: bool) {
 Game_Memory :: struct {
 	player_pos:         rl.Vector2,
 	pipe_texture:       rl.Texture, //We opt for identifying the textures individually
-	//entities:           [dynamic]Entity, //TODO(Fausto):dynamic?
-	entities:           [16]Entity, //TODO(Fausto):dynamic?
+	entities:           [dynamic]Entity, //TODO(Fausto):dynamic?
+	//entities:           [16]Entity, //TODO(Fausto):dynamic?
 	grid_size:          int,
 	run:                bool,
 	selected_pipe:      int,
@@ -220,9 +221,11 @@ ui_camera :: proc() -> rl.Camera2D {
 	return {zoom = f32(rl.GetScreenHeight()) / PIXEL_WINDOW_HEIGHT}
 }
 
+GRID_SIZE :: 4
+
 update :: proc() {
 	input: rl.Vector2
-	g_mem.grid_size = 4
+	g_mem.grid_size = 8
 	if rl.IsKeyDown(.UP) || rl.IsKeyDown(.W) {
 		input.y -= 1
 	}
@@ -373,7 +376,7 @@ game_init :: proc() {
 
 	pipe_texture := rl.LoadTexture("assets/Bioshockhacking.png") // NOTE this is a spritesheet
 
-	//entities := make_dynamic_array([dynamic]Entity)
+	entities := make_dynamic_array([dynamic]Entity)
 	//entities := [100]Entity
 
 	g_mem^ = Game_Memory {
@@ -384,7 +387,7 @@ game_init :: proc() {
 		// files will be part any release or web build.
 		//player_texture = rl.LoadATexture("assets/round_cat.png"),
 		pipe_texture  = pipe_texture, //TODO(Fausto): Look at this
-		//	entities      = entities,
+		entities      = entities,
 		selected_pipe = -1,
 	}
 
@@ -407,8 +410,8 @@ game_should_run :: proc() -> bool {
 game_shutdown :: proc() {
 	//g_mem.Textures
 	rl.UnloadTexture(g_mem.pipe_texture)
-	//clear_dynamic_array(&g_mem.entities)
-	//delete_dynamic_array(g_mem.entities)
+	clear_dynamic_array(&g_mem.entities)
+	delete_dynamic_array(g_mem.entities)
 	free(g_mem)
 }
 
