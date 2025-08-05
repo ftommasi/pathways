@@ -33,10 +33,10 @@ PIXEL_WINDOW_HEIGHT :: 180
 
 //TODO(Fausto): reconsider this
 Rotations :: enum {
-	_0_DEG,
-	_90_DEG,
-	_180_DEG,
-	_270_DEG,
+	_0_DEG   = 0,
+	_90_DEG  = 90,
+	_180_DEG = 180,
+	_270_DEG = 270,
 }
 
 //TOOD(Fausto): Will we weven need more?
@@ -50,6 +50,7 @@ Entity :: struct {
 	pos:       rl.Vector2,
 	kind:      EntityKind,
 	specifics: EntityTypes,
+	selected:  bool,
 }
 
 Pipe :: struct {
@@ -70,7 +71,7 @@ reset_pipe_grid :: proc() {
 	//for &ent in g_mem.entities {
 	//	free(&ent)
 	//}
-	clear_dynamic_array(&g_mem.entities)
+	//clear_dynamic_array(&g_mem.entities)
 
 	//then lets recreate our entity array
 	//TODO(Fausto): Revisit how we think about doing this
@@ -80,6 +81,7 @@ reset_pipe_grid :: proc() {
 	//grid_end := rl.GetScreenWidth() - max_grid_size_pixels / 2
 	grid_size := g_mem.grid_size - 1 //Want modularity
 	step_size := cast(f32)(PIPE_WIDTH + 1) // add a tad of padding
+	idx := 0
 	for col in 0 ..= grid_size {
 		for row in 0 ..= grid_size {
 			//Lets come up with a dynamic way to draw the grid. It should always be in the middle of the screen
@@ -87,8 +89,20 @@ reset_pipe_grid :: proc() {
 			//pos := rl.Vector2{f32(row), f32(col)}
 			is_elbow := (col % 2 == 0 && row % 2 != 0) //random-ish for now
 			//TODO(Fausto): Revisit returning pointers into dynamic arry
-			entity := make_pipe_entity(pos, is_elbow, Rotations._0_DEG)
-			append(&g_mem.entities, entity)
+			rotation := Rotations._0_DEG
+			if col % 2 == 0 && row % 2 != 0 {
+				rotation = Rotations._0_DEG
+			} else if col % 2 == 0 && row % 2 == 0 {
+				rotation = Rotations._90_DEG
+			} else if col % 2 != 0 && row % 2 == 0 {
+				rotation = Rotations._180_DEG
+			} else if col % 2 != 0 && row % 2 != 0 {
+				rotation = Rotations._270_DEG
+			}
+			entity := make_pipe_entity(pos, is_elbow, rotation)
+			g_mem.entities[idx] = entity
+			idx += 1
+			g_mem.pipes_appended += 1
 		}
 	}
 
@@ -110,16 +124,27 @@ make_pipe_entity :: proc(pos: rl.Vector2, is_elbow: bool, rot: Rotations) -> Ent
 }
 
 
-draw_entity :: proc(e: ^Entity) {
+//TODO(Fausto) I hate this
+draw_entity :: proc(e: ^Entity, selected: bool) {
 	switch e.kind {
 	case .PIPE:
 		{
 			pipe_specifics := e.specifics.(Pipe) //shorthand
-			dest := rl.Rectangle{e.pos.x, e.pos.y, PIPE_WIDTH, PIPE_HEIGHT}
+			//TODO(Fausto): Refactor. Also make dynamic so it alwys fits
+			pipe_size: f32 = PIPE_WIDTH //cast(f32)(PIPE_WIDTH * g_mem.grid_size) / cast(f32)rl.GetScreenHeight()
+			dest := rl.Rectangle{e.pos.x, e.pos.y, pipe_size, pipe_size}
 			if pipe_specifics.is_elbow {
 				rect := rl.Rectangle{0, 0, PIPE_SPRITE_SIZE, PIPE_SPRITE_SIZE} // Guesstimated based on asesprite
 				//rl.DrawTextureRec(g_mem.pipe_texture, rect, e.pos, rl.WHITE) // Cat texture
-				rl.DrawTexturePro(g_mem.pipe_texture, rect, dest, rl.Vector2{0, 0}, 0, rl.WHITE) // Cat texture
+				rl.DrawTexturePro(
+					g_mem.pipe_texture,
+					rect,
+					dest,
+					rl.Vector2{0, 0},
+					//f32(int(e.specifics.(Pipe).rotation)),
+					0,
+					rl.WHITE,
+				) // Cat texture
 			} else {
 				rect := rl.Rectangle {
 					PIPE_SPRITE_SIZE,
@@ -127,7 +152,30 @@ draw_entity :: proc(e: ^Entity) {
 					PIPE_SPRITE_SIZE,
 					PIPE_SPRITE_SIZE,
 				} // Guesstimated based on asesprite
-				rl.DrawTexturePro(g_mem.pipe_texture, rect, dest, rl.Vector2{0, 0}, 0, rl.WHITE) // Cat texture
+				rl.DrawTexturePro(
+					g_mem.pipe_texture,
+					rect,
+					dest,
+					rl.Vector2{0, 0},
+					//f32(int(e.specifics.(Pipe).rotation)),
+					0,
+					rl.WHITE,
+				) // Cat texture
+			}
+			//if e.selected {
+			if selected {
+				rl.DrawRectangleLinesEx(dest, 2, rl.YELLOW)
+			}
+
+			//Nice hot reload trick
+			if true {
+				rl.DrawText(
+					fmt.ctprintf("<%v,%v>%v", e.pos.x, e.pos.y, int(e.specifics.(Pipe).rotation)),
+					cast(i32)e.pos.x,
+					cast(i32)e.pos.y,
+					5,
+					rl.YELLOW,
+				)
 			}
 		}
 	}
@@ -135,11 +183,16 @@ draw_entity :: proc(e: ^Entity) {
 
 //Changes to Game_Memory do not reflect without a full shutdown
 Game_Memory :: struct {
-	player_pos:   rl.Vector2,
-	pipe_texture: rl.Texture, //We opt for identifying the textures individually
-	entities:     [dynamic]Entity, //TODO(Fausto):dynamic?
-	grid_size:    int,
-	run:          bool,
+	player_pos:         rl.Vector2,
+	pipe_texture:       rl.Texture, //We opt for identifying the textures individually
+	//entities:           [dynamic]Entity, //TODO(Fausto):dynamic?
+	entities:           [16]Entity, //TODO(Fausto):dynamic?
+	grid_size:          int,
+	run:                bool,
+	selected_pipe:      int,
+	prev_selected_pipe: int,
+	pipes_appended:     int,
+	init:               bool,
 }
 
 g_mem: ^Game_Memory
@@ -169,7 +222,7 @@ ui_camera :: proc() -> rl.Camera2D {
 
 update :: proc() {
 	input: rl.Vector2
-	g_mem.grid_size = 8
+	g_mem.grid_size = 4
 	if rl.IsKeyDown(.UP) || rl.IsKeyDown(.W) {
 		input.y -= 1
 	}
@@ -191,9 +244,48 @@ update :: proc() {
 
 	}
 
-	if len(g_mem.entities) != g_mem.grid_size {
+	//TODO these arent unified. Just accepting that R hot reloads...
+	if rl.IsKeyPressed(.R) {
+		g_mem.init = false
+
+	}
+
+	if rl.IsMouseButtonReleased(.LEFT) {
+		//TODO(Optimize checking for what pipe is being selected
+		mouse_pos := rl.GetScreenToWorld2D(rl.GetMousePosition(), game_camera())
+		//TODO(Fausto): Refactor. Also make dynamic so it alwys fits
+		pipe_size: f32 = PIPE_WIDTH //cast(f32)(PIPE_WIDTH * g_mem.grid_size) / cast(f32)rl.GetScreenHeight()
+		for &ent, idx in g_mem.entities {
+			if mouse_pos.x >= ent.pos.x &&
+			   mouse_pos.x <= ent.pos.x + pipe_size &&
+			   mouse_pos.y >= ent.pos.y &&
+			   mouse_pos.y <= ent.pos.y + pipe_size {
+				if g_mem.prev_selected_pipe != g_mem.selected_pipe {
+					g_mem.prev_selected_pipe = g_mem.selected_pipe
+				}
+				g_mem.selected_pipe = idx
+			}
+		}
+	}
+
+	if g_mem.selected_pipe > -1 {
+		g_mem.entities[g_mem.selected_pipe].selected = true
+		if g_mem.prev_selected_pipe != g_mem.selected_pipe && g_mem.prev_selected_pipe > -1 {
+			temp := g_mem.entities[g_mem.selected_pipe].pos
+			g_mem.entities[g_mem.selected_pipe].pos = g_mem.entities[g_mem.prev_selected_pipe].pos
+			g_mem.entities[g_mem.prev_selected_pipe].pos = temp
+
+			//After swap is done. Deselect
+			g_mem.prev_selected_pipe = -1
+			g_mem.selected_pipe = -1
+		}
+	}
+
+	//if len(g_mem.entities) != g_mem.grid_size * g_mem.grid_size {
+	if !g_mem.init {
 		reset_pipe_grid() //Lets scrap and start from scratch
 		// Probably made a hot reload change..
+		g_mem.init = true
 	}
 }
 
@@ -226,8 +318,10 @@ draw :: proc() {
 	//rl.DrawRectangleV({20, 20}, {10, 10}, rl.RED)
 	//rl.DrawRectangleV({-30, -20}, {10, 10}, rl.GREEN)
 	//lets draw pipes only on the screen coordinates not world coords
-	for &ent in g_mem.entities {
-		draw_entity(&ent)
+	for &ent, idx in g_mem.entities {
+		if idx < g_mem.pipes_appended {
+			draw_entity(&ent, idx == g_mem.selected_pipe) //TODO(Fausto) I hate this
+		}
 	}
 	rl.EndMode2D()
 
@@ -238,9 +332,12 @@ draw :: proc() {
 	// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
 	rl.DrawText(
 		fmt.ctprintf(
-			"WELCOME TO RAY GUI LIB grid_size: %v\nplayer_pos: %v",
+			"WELCOME TO RAY GUI LIB grid_size: %v\nmouse_pos: %v\npipe_size: %v\nselected: %v\nprev: %v",
 			g_mem.grid_size,
-			rl.GetMousePosition(),
+			rl.GetScreenToWorld2D(rl.GetMousePosition(), game_camera()),
+			cast(f32)PIPE_WIDTH,
+			g_mem.selected_pipe,
+			g_mem.prev_selected_pipe,
 		),
 		5,
 		5,
@@ -276,17 +373,19 @@ game_init :: proc() {
 
 	pipe_texture := rl.LoadTexture("assets/Bioshockhacking.png") // NOTE this is a spritesheet
 
-	entities := make_dynamic_array([dynamic]Entity)
+	//entities := make_dynamic_array([dynamic]Entity)
+	//entities := [100]Entity
 
 	g_mem^ = Game_Memory {
-		run          = true,
-		grid_size    = 8,
+		run           = true,
+		grid_size     = 8,
 
 		// You can put textures, sounds and music in the `assets` folder. Those
 		// files will be part any release or web build.
 		//player_texture = rl.LoadATexture("assets/round_cat.png"),
-		pipe_texture = pipe_texture, //TODO(Fausto): Look at this
-		entities     = entities,
+		pipe_texture  = pipe_texture, //TODO(Fausto): Look at this
+		//	entities      = entities,
+		selected_pipe = -1,
 	}
 
 	game_hot_reloaded(g_mem)
@@ -308,8 +407,8 @@ game_should_run :: proc() -> bool {
 game_shutdown :: proc() {
 	//g_mem.Textures
 	rl.UnloadTexture(g_mem.pipe_texture)
-	clear_dynamic_array(&g_mem.entities)
-	delete_dynamic_array(g_mem.entities)
+	//clear_dynamic_array(&g_mem.entities)
+	//delete_dynamic_array(g_mem.entities)
 	free(g_mem)
 }
 
