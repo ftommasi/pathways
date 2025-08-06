@@ -117,7 +117,7 @@ make_pipe_entity :: proc(pos: rl.Vector2, is_elbow: bool, rot: Rotations) -> Ent
 	}
 
 	ent.specifics = Pipe {
-		is_elbow = is_elbow,
+		is_elbow = true,
 		rotation = rot,
 	}
 
@@ -133,19 +133,31 @@ draw_entity :: proc(e: ^Entity, selected: bool) {
 			pipe_specifics := e.specifics.(Pipe) //shorthand
 			//TODO(Fausto): Refactor. Also make dynamic so it alwys fits
 			pipe_size: f32 = PIPE_WIDTH //cast(f32)(PIPE_WIDTH * g_mem.grid_size) / cast(f32)rl.GetScreenHeight()
-			dest := rl.Rectangle{e.pos.x, e.pos.y, pipe_size, pipe_size}
+			dest := rl.Rectangle {
+				e.pos.x + (pipe_size / 2),
+				e.pos.y + (pipe_size / 2),
+				pipe_size,
+				pipe_size,
+			}
+			//if e.selected {
+			outer := rl.Rectangle {
+				dest.x - pipe_size / 2,
+				dest.y - pipe_size / 2,
+				dest.width,
+				dest.height,
+			}
 			if pipe_specifics.is_elbow {
 				rect := rl.Rectangle{0, 0, PIPE_SPRITE_SIZE, PIPE_SPRITE_SIZE} // Guesstimated based on asesprite
-				//rl.DrawTextureRec(g_mem.pipe_texture, rect, e.pos, rl.WHITE) // Cat texture
 				rl.DrawTexturePro(
 					g_mem.pipe_texture,
 					rect,
 					dest,
-					rl.Vector2{0, 0},
-					//f32(int(e.specifics.(Pipe).rotation)),
-					0,
+					rl.Vector2{pipe_size / 2, pipe_size / 2},
+					f32(int(e.specifics.(Pipe).rotation)),
+					//0,
 					rl.WHITE,
 				) // Cat texture
+				//	rl.ImageDrawRectangleRec(&img, dest, rl.WHITE)
 			} else {
 				rect := rl.Rectangle {
 					PIPE_SPRITE_SIZE,
@@ -157,19 +169,21 @@ draw_entity :: proc(e: ^Entity, selected: bool) {
 					g_mem.pipe_texture,
 					rect,
 					dest,
-					rl.Vector2{0, 0},
-					//f32(int(e.specifics.(Pipe).rotation)),
-					0,
+					rl.Vector2{pipe_size / 2, pipe_size / 2},
+					f32(int(e.specifics.(Pipe).rotation)),
+					//0,
 					rl.WHITE,
-				) // Cat texture
+				)
 			}
-			//if e.selected {
+
 			if selected {
-				rl.DrawRectangleLinesEx(dest, 2, rl.YELLOW)
+				rl.DrawRectangleLinesEx(outer, 2, rl.YELLOW)
 			}
 
 			//Nice hot reload trick
-			if true {
+			if false {
+				//Debug draw all outlines
+				//rl.DrawRectangleLinesEx(outer, 2, rl.YELLOW)
 				rl.DrawText(
 					fmt.ctprintf("<%v,%v>%v", e.pos.x, e.pos.y, int(e.specifics.(Pipe).rotation)),
 					cast(i32)e.pos.x,
@@ -225,7 +239,7 @@ GRID_SIZE :: 4
 
 update :: proc() {
 	input: rl.Vector2
-	g_mem.grid_size = 8
+	g_mem.grid_size = 3
 	if rl.IsKeyDown(.UP) || rl.IsKeyDown(.W) {
 		input.y -= 1
 	}
@@ -333,20 +347,22 @@ draw :: proc() {
 	// NOTE: `fmt.ctprintf` uses the temp allocator. The temp allocator is
 	// cleared at the end of the frame by the main application, meaning inside
 	// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
-	rl.DrawText(
-		fmt.ctprintf(
-			"WELCOME TO RAY GUI LIB grid_size: %v\nmouse_pos: %v\npipe_size: %v\nselected: %v\nprev: %v",
-			g_mem.grid_size,
-			rl.GetScreenToWorld2D(rl.GetMousePosition(), game_camera()),
-			cast(f32)PIPE_WIDTH,
-			g_mem.selected_pipe,
-			g_mem.prev_selected_pipe,
-		),
-		5,
-		5,
-		8,
-		rl.WHITE,
-	)
+	if false {
+		rl.DrawText(
+			fmt.ctprintf(
+				"WELCOME TO RAY GUI LIB grid_size: %v\nmouse_pos: %v\npipe_size: %v\nselected: %v\nprev: %v",
+				g_mem.grid_size,
+				rl.GetScreenToWorld2D(rl.GetMousePosition(), game_camera()),
+				cast(f32)PIPE_WIDTH,
+				g_mem.selected_pipe,
+				g_mem.prev_selected_pipe,
+			),
+			5,
+			5,
+			8,
+			rl.WHITE,
+		)
+	}
 
 	rl.EndMode2D()
 
