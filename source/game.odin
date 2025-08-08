@@ -56,6 +56,7 @@ Entity :: struct {
 Pipe :: struct {
 	is_elbow: bool,
 	rotation: Rotations, //only 4 options?
+	flow:     f32, // from 0 -> 1
 }
 
 EntityTypes :: union {
@@ -146,6 +147,10 @@ draw_entity :: proc(e: ^Entity, selected: bool) {
 				dest.width,
 				dest.height,
 			}
+
+			//Before we draw the pipe texture, draw the flow
+			//draw_pipe_flow(&pipe_specifics)
+
 			if pipe_specifics.is_elbow {
 				rect := rl.Rectangle{0, 0, PIPE_SPRITE_SIZE, PIPE_SPRITE_SIZE} // Guesstimated based on asesprite
 				rl.DrawTexturePro(
@@ -174,6 +179,7 @@ draw_entity :: proc(e: ^Entity, selected: bool) {
 					//0,
 					rl.WHITE,
 				)
+				draw_pipe_flow(e)
 			}
 
 			if selected {
@@ -181,11 +187,11 @@ draw_entity :: proc(e: ^Entity, selected: bool) {
 			}
 
 			//Nice hot reload trick
-			if false {
+			if true {
 				//Debug draw all outlines
 				//rl.DrawRectangleLinesEx(outer, 2, rl.YELLOW)
 				rl.DrawText(
-					fmt.ctprintf("<%v,%v>%v", e.pos.x, e.pos.y, int(e.specifics.(Pipe).rotation)),
+					fmt.ctprintf("<%v,%v>%v", e.pos.x, e.pos.y, int(e.specifics.(Pipe).flow)),
 					cast(i32)e.pos.x,
 					cast(i32)e.pos.y,
 					5,
@@ -208,6 +214,9 @@ Game_Memory :: struct {
 	prev_selected_pipe: int,
 	pipes_appended:     int,
 	init:               bool,
+	shader_time_loc:    int,
+	time:               f32,
+	pipe_flow_shader:   rl.Shader,
 }
 
 g_mem: ^Game_Memory
@@ -233,6 +242,19 @@ game_camera :: proc() -> rl.Camera2D {
 
 ui_camera :: proc() -> rl.Camera2D {
 	return {zoom = f32(rl.GetScreenHeight()) / PIXEL_WINDOW_HEIGHT}
+}
+
+draw_pipe_flow :: proc(pipe: ^Entity) {
+	//Here we are concerned with drawing the shapes/textures/shaders associated with the flow of the pipe once that has been figured out
+	blue := cast(u8)pipe.specifics.(Pipe).flow % 255
+	rl.DrawRectangle(
+		cast(i32)pipe.pos.x + PIPE_WIDTH / 2,
+		cast(i32)pipe.pos.y + PIPE_WIDTH / 2,
+		cast(i32)PIPE_WIDTH / 2,
+		cast(i32)PIPE_WIDTH / 2,
+		rl.Color{0, 0, blue, 1},
+	)
+
 }
 
 GRID_SIZE :: 4
@@ -287,6 +309,15 @@ update :: proc() {
 
 	if g_mem.selected_pipe > -1 {
 		g_mem.entities[g_mem.selected_pipe].selected = true
+		//Tick flow on selected pipe
+		//TODO(Fausto): NOTE that we did selected just to develop the flow feature, make sure to actually implement the flow and remove the selected bit 
+		//NOTE:Assume you can only select pipes....
+		prev := g_mem.entities[g_mem.selected_pipe].specifics.(Pipe)
+		g_mem.entities[g_mem.selected_pipe].specifics = Pipe {
+			is_elbow = prev.is_elbow,
+			rotation = prev.rotation, //only 4 options?
+			flow     = prev.flow + rl.GetFrameTime(), // from 0 -> 1
+		}
 		if g_mem.prev_selected_pipe != g_mem.selected_pipe && g_mem.prev_selected_pipe > -1 {
 			temp := g_mem.entities[g_mem.selected_pipe].pos
 			g_mem.entities[g_mem.selected_pipe].pos = g_mem.entities[g_mem.prev_selected_pipe].pos
@@ -298,6 +329,7 @@ update :: proc() {
 		}
 	}
 
+
 	//if len(g_mem.entities) != g_mem.grid_size * g_mem.grid_size {
 	if !g_mem.init {
 		reset_pipe_grid() //Lets scrap and start from scratch
@@ -306,27 +338,10 @@ update :: proc() {
 	}
 }
 
-//draw a grid of nxn squares
-draw_square_grid :: proc(n: int) {
-	color := []rl.Color{rl.PURPLE, rl.GRAY}
-	selected_color := 0
-	size: f32 = 25
-	for col in 0 ..= n {
-		for row in 0 ..= n {
-			rl.DrawRectangleV(
-				{size * f32(row), size * f32(col)},
-				{size, size},
-				color[selected_color],
-			)
-			selected_color = (selected_color + 1) % 2 // toggle
-		}
-	}
-}
-
 
 draw :: proc() {
 	rl.BeginDrawing()
-	rl.ClearBackground(rl.BLUE)
+	rl.ClearBackground(rl.Color{45, 37, 34, 1})
 
 	rl.BeginMode2D(game_camera())
 	//grid is lowest priorty
@@ -390,8 +405,11 @@ game_init_window :: proc() {
 game_init :: proc() {
 	g_mem = new(Game_Memory)
 
-	pipe_texture := rl.LoadTexture("assets/Bioshockhacking.png") // NOTE this is a spritesheet
-
+	pipe_texture := rl.LoadTexture("assets/Bioshockhacking_transparent.png") // NOTE this is a spritesheet
+	//pipe_flow_shader := rl.LoadShader("shaders/pipe_flow.fs", 330)
+	//shader_time_loc := rl.GetShaderLocation(pipe_flow_shader, "uTime")
+	//time: f32 = 0
+	//rl.SetShaderValue(pipe_flow_shader, shader_time_loc, &time, rl.SHADER_UNIFROM_FLOAT)
 	entities := make_dynamic_array([dynamic]Entity)
 	//entities := [100]Entity
 
@@ -405,6 +423,8 @@ game_init :: proc() {
 		pipe_texture  = pipe_texture, //TODO(Fausto): Look at this
 		entities      = entities,
 		selected_pipe = -1,
+		//pipe_flow_shader = pipe_flow_shader,
+		//pipe_texture     = pipe_texture,
 	}
 
 	game_hot_reloaded(g_mem)
